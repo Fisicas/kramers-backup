@@ -23,6 +23,7 @@ class ConfigTests(unittest.TestCase):
         os.environ.pop("KRAMERS_CONFIG", None)
         self.tmp.cleanup()
 
+    @unittest.skipUnless(os.name == "nt", "v1 configs hold Windows paths")
     def test_v1_migration_keeps_existing_backup_folder(self):
         v1 = {"source": r"C:\Users\x\Desktop", "dest": r"K:\Desktop Backup", "mode": "versioned",
               "schedule_time": "07:30"}
