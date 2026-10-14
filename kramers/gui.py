@@ -101,6 +101,27 @@ class App:
         self._update_tray()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         root.after(100, self._pump)
+        self._state_seen = (self._state_mtime(), time.strftime("%Y-%m-%d"))
+        root.after(30_000, self._watch_state)
+
+    # ------------------------------------------------------------------ external runs
+    @staticmethod
+    def _state_mtime() -> float:
+        try:
+            return (config.config_dir() / "state.json").stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def _watch_state(self):
+        """Pick up backups recorded by other Kramers processes (the scheduled task), and
+        re-render relative dates ("Today" -> "Yesterday") after midnight."""
+        seen = (self._state_mtime(), time.strftime("%Y-%m-%d"))
+        if seen != self._state_seen and not (self.worker and self.worker.is_alive()):
+            self._state_seen = seen
+            self.state = config.load_state()
+            self._load_jobs()
+            self._update_tray()
+        self.root.after(30_000, self._watch_state)
 
     # ------------------------------------------------------------------ layout
     def _build(self):
