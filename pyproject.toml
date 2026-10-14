@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kramers-backup"
+dynamic = ["version"]
+description = "Every file gets its degenerate partner: a safe one-way mirror backup for Windows (Desktop, Downloads, EndNote, Claude & Codex environments, Python environments)."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["sv-ttk>=2.6"]
+keywords = ["backup", "mirror", "windows", "tkinter", "claude", "codex", "endnote", "conda"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Science/Research",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Archiving :: Backup",
+]
+
+[project.urls]
+Homepage = "https://github.com/Fisicas/kramers-backup"
+Issues = "https://github.com/Fisicas/kramers-backup/issues"
+Changelog = "https://github.com/Fisicas/kramers-backup/blob/main/CHANGELOG.md"
+
+[project.gui-scripts]
+kramers = "kramers.gui:main"
+
+[project.scripts]
+kramers-run = "kramers.runner:cli"
+
+[tool.setuptools]
+packages = ["kramers", "kramers.resources"]
+
+[tool.setuptools.dynamic]
+version = { attr = "kramers.__version__" }
+
+[tool.setuptools.package-data]
+"kramers.resources" = ["*.png", "*.ico"]

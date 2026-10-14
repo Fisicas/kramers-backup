@@ -1,0 +1,26 @@
+# Personal settings never enter git (the app keeps them in %APPDATA%\Kramers).
+config.json
+config.json.imported
+state.json
+
+# Generated
+__pycache__/
+*.pyc
+*.kramers-partial
+*.dmb_partial
+logs/
+
+# Local environments
+.venv/
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+
+# Packaging output
+build/
+dist/
+*.egg-info/
+
+# Private planning notes (kept locally, never published)
+docs/plan/
