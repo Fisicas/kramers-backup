@@ -102,6 +102,8 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         root.after(100, self._pump)
         self._state_seen = (self._state_mtime(), time.strftime("%Y-%m-%d"))
+        self._sched_seen = (self.state.get("last_scheduled") or {}).get("at", "")
+        self._sched_checked = time.monotonic()
         root.after(30_000, self._watch_state)
 
     # ------------------------------------------------------------------ external runs
@@ -113,14 +115,25 @@ class App:
             return 0.0
 
     def _watch_state(self):
-        """Pick up backups recorded by other Kramers processes (the scheduled task), and
-        re-render relative dates ("Today" -> "Yesterday") after midnight."""
+        """Pick up backups recorded by other Kramers processes (the scheduled task), re-render
+        relative dates ("Today" -> "Yesterday") after midnight, and keep the schedule's
+        "next run" / "last scheduled run" line current."""
         seen = (self._state_mtime(), time.strftime("%Y-%m-%d"))
-        if seen != self._state_seen and not (self.worker and self.worker.is_alive()):
+        changed = seen != self._state_seen
+        if changed and not (self.worker and self.worker.is_alive()):
             self._state_seen = seen
             self.state = config.load_state()
             self._load_jobs()
             self._update_tray()
+            last = self.state.get("last_scheduled") or {}
+            if last.get("at", "") > self._sched_seen:
+                self._sched_seen = last["at"]
+                self._log(f"Scheduled run {human_when(last['at'])}: {last.get('title', '')}. "
+                          f"{last.get('summary', '')}")
+        if changed or time.monotonic() - self._sched_checked > 300:
+            self._sched_checked = time.monotonic()
+            threading.Thread(target=lambda: self.q.put(("schedule", self._query_schedule())),
+                             daemon=True, name="kramers-schedule").start()
         self.root.after(30_000, self._watch_state)
 
     # ------------------------------------------------------------------ layout
@@ -846,6 +859,8 @@ class App:
                 kind, payload = self.q.get_nowait()
                 if kind == "tray":
                     self._tray_action(payload)
+                elif kind == "schedule":
+                    self._show_schedule(*payload)
                 elif kind == "bitlocker":
                     serial, state = payload
                     self._bitlocker[serial] = state
@@ -1072,16 +1087,33 @@ class App:
                   "Remove: " + (out.stderr or out.stdout).strip())
         self._refresh_schedule_status()
 
+    @staticmethod
+    def _query_schedule() -> tuple:
+        """(installed, next run text) from Task Scheduler. Safe to call off the UI thread."""
+        try:
+            out = subprocess.run(["schtasks", "/Query", "/TN", config.TASK_NAME, "/FO", "LIST"],
+                                 capture_output=True, text=True, creationflags=shortcuts.NO_WINDOW)
+        except OSError:
+            return False, ""
+        if out.returncode != 0:
+            return False, ""
+        nxt = next((ln.split(":", 1)[1].strip() for ln in out.stdout.splitlines()
+                    if ln.lower().startswith("next run time")), "")
+        return True, nxt
+
     def _refresh_schedule_status(self):
-        out = subprocess.run(["schtasks", "/Query", "/TN", config.TASK_NAME, "/FO", "LIST"],
-                             capture_output=True, text=True, creationflags=shortcuts.NO_WINDOW)
-        if out.returncode == 0:
-            nxt = next((ln.split(":", 1)[1].strip() for ln in out.stdout.splitlines()
-                        if ln.lower().startswith("next run time")), "")
-            self.sched_status.configure(text=f"✓ Background schedule '{config.TASK_NAME}' is installed."
-                                             + (f" Next run: {nxt}." if nxt else ""))
-        else:
+        self._show_schedule(*self._query_schedule())
+
+    def _show_schedule(self, installed: bool, nxt: str):
+        if not installed:
             self.sched_status.configure(text="No background schedule installed.")
+            return
+        text = f"✓ Background schedule '{config.TASK_NAME}' is installed." + (
+            f" Next run: {nxt}." if nxt else "")
+        last = self.state.get("last_scheduled") or {}
+        if last.get("at"):
+            text += f"\nLast scheduled run {human_when(last['at'])}: {last.get('summary', '')}"
+        self.sched_status.configure(text=text, justify="left")
 
     # ------------------------------------------------------------------ misc
     def _make_shortcuts(self):

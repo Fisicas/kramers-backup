@@ -42,6 +42,19 @@ def summary(result: engine.RunResult) -> tuple:
     return f"{APP_NAME}: backup finished", text, "info", False
 
 
+def record_outcome(title: str, text: str, level: str) -> None:
+    """Remember how this unattended run ended -- including runs skipped because the drive
+    was not connected, which write no backup state -- so an open window can show it."""
+    from datetime import datetime
+    try:
+        state = config.load_state()
+        state["last_scheduled"] = {"at": datetime.now().isoformat(timespec="seconds"),
+                                   "title": title, "summary": text, "level": level}
+        config.save_state(state)
+    except OSError:
+        pass
+
+
 def should_notify(mode: str, needs_attention: bool) -> bool:
     return mode == "always" or (mode == "problems" and needs_attention)
 
@@ -87,6 +100,8 @@ def main(argv: list) -> int:
     result = config.run_jobs(cfg, jobs, dry_run=dry,
                              log=(lambda m: print(m, flush=True)) if console else None)
     title, text, level, attention = summary(result)
+    if not dry:
+        record_outcome(title, text, level)
     if console:
         print(f"{title}: {text}")
     elif not dry and should_notify(cfg.get("notify_scheduled", "problems"), attention):
