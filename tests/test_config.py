@@ -221,6 +221,41 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("not connected", last["summary"])
         self.assertIn("skipped", last["title"])
 
+    def _mass_removal_cfg(self, setting: str, keep_files: int = 10):
+        src = self.base / "data"
+        dest = self.base / "backup" / "Data"
+        src.mkdir()
+        dest.mkdir(parents=True)
+        for i in range(keep_files):
+            (src / f"k{i}.txt").write_text("k")
+        for i in range(80):                               # far past the 20% / 50-file guard
+            (dest / f"gone{i}.txt").write_text("g")
+        cfg = json.loads(json.dumps(C.DEFAULTS))
+        cfg.update(dest_root=str(self.base / "backup"), unattended_removals=setting,
+                   notify_scheduled="never")
+        cfg["jobs"] = [C.new_job("f", "Data", "folder", source=str(src))]
+        C.save_config(cfg)
+        return dest
+
+    def test_unattended_run_applies_large_removals_without_asking(self):
+        from kramers import runner
+        dest = self._mass_removal_cfg("apply")
+        self.assertEqual(runner.main(["--run"]), 0)
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), [f"k{i}.txt" for i in range(10)])
+
+    def test_unattended_run_can_keep_files_instead(self):
+        from kramers import runner
+        dest = self._mass_removal_cfg("skip")
+        runner.main(["--run"])
+        self.assertEqual(len(list(dest.glob("gone*.txt"))), 80)
+        self.assertIn("warning", C.load_state()["last_scheduled"]["level"])
+
+    def test_unattended_run_never_empties_backup_of_an_empty_source(self):
+        from kramers import runner
+        dest = self._mass_removal_cfg("apply", keep_files=0)
+        runner.main(["--run"])
+        self.assertEqual(len(list(dest.glob("gone*.txt"))), 80)
+
     def test_presets_exclude_credentials(self):
         claude_home = next(s for s in P.CLAUDE.roots if s.key == "home")
         self.assertIn("/.credentials.json", claude_home.excludes)

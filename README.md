@@ -121,7 +121,7 @@ On a new PC, install the apps first, then restore. `RESTORE.md` in the backup li
 
 - **Missing source:** the set is skipped and its backup is left untouched.
 - **Empty source:** if a source folder is empty but its backup is not, nothing is deleted.
-- **Mass deletions:** if a run would remove more than 20% of a set (and at least 50 files), or more than 5,000 files, Kramers asks first and shows the list. Scheduled runs never delete in that situation; they log it and notify you. The thresholds are set in Options.
+- **Mass deletions:** if a run would remove more than 20% of a set (and at least 50 files), or more than 5,000 files, **Back up now** asks first and shows the list. Unattended runs (scheduled, or automatic while Kramers is open) never stop to ask. By default they carry out the removals so the backup stays an exact mirror, and record them in the log. Options can make them keep the files and notify you instead. The thresholds are set in Options.
 - **Wrong drive:** the backup drive's volume serial number is recorded. If another drive appears under the same letter, nothing is written until you choose **Use this drive**.
 - **One run at a time:** a lock file on the backup drive stops the app and the scheduled task from overlapping.
 - **Interrupted runs:** copies go to `*.kramers-partial` first and are renamed only when complete. Leftovers are cleaned up on the next run.

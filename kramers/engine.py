@@ -219,6 +219,12 @@ class RunResult:
 
 
 ProgressCB = Callable[[Progress], None]
+
+
+def approve_unattended(plan: "RootPlan") -> bool:
+    """confirm_deletes for unattended runs (scheduled, or automatic while the window is
+    open) whose settings say large removals should go ahead without asking."""
+    return True
 LogFn = Callable[[str], None]
 ConfirmFn = Callable[[RootPlan], bool]
 
@@ -714,6 +720,9 @@ def _run(roots, progress_cb, cancel, dry_run, log, confirm_deletes, guard, worke
                                         "(mass-deletion guard; not confirmed)")
                 progress.add(warnings=1)
                 log(f"GUARD: [{plan.root.label}] {plan.deletes_blocked}")
+            elif confirm_deletes is approve_unattended:
+                log(f"GUARD: [{plan.root.label}] {len(plan.deletes)} of {plan.scanned_dest_files} "
+                    "backup files removed without asking (unattended run; see Options).")
             else:
                 log(f"GUARD: [{plan.root.label}] {len(plan.deletes)} deletions confirmed.")
         if plan.deletes_blocked:

@@ -52,6 +52,7 @@ DEFAULTS = {
     "close_to_tray": True,               # closing the window keeps Kramers in the notification area
     "archive_keep_days": 30,             # versioned mode: delete archives older than this (0 = keep)
     "notify_scheduled": "problems",      # scheduled runs: always | problems | never
+    "unattended_removals": "apply",      # unattended runs past the guard: apply | skip
     "warn_unencrypted": False,           # main-window reminder when BitLocker is off
 }
 
@@ -192,6 +193,11 @@ def job_roots(cfg: dict, job: dict) -> list:
             redact_json=tuple(spec.redact_json), optional=spec.optional)
         out.append((spec, root, spec.key not in job.get("disabled_roots", [])))
     return out
+
+
+def unattended_confirm(cfg: dict):
+    """confirm_deletes for a run nobody is watching: go ahead, or withhold (None)."""
+    return engine.approve_unattended if cfg.get("unattended_removals", "apply") == "apply" else None
 
 
 def jobs_due(cfg: dict, now: Optional[datetime] = None) -> tuple:
