@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Changed**
+- **Unattended backups never stop to ask.** Previously, an automatic backup while the window was open
+  waited for an answer when it hit the mass-deletion guard. A scheduled backup withheld those
+  removals instead. Both now carry out the removals by default and log them. Options →
+  "When a scheduled or automatic backup would remove many files" can keep the files and notify
+  you instead. **Back up now** still asks. Missing and empty sources still never delete.
+- The open window keeps "Last backup", sizes and the schedule's "Next run" current, and shows
+  scheduled runs that were skipped because the backup drive was not connected (#1, #2).
+
+
 ## 2.1.0 — 2026-10-13 — first public release
 
 **New**

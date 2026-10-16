@@ -5,8 +5,9 @@ runner.py -- headless backup for Windows Task Scheduler and silent runs.
     python  Kramers.pyw --run --dry-run       # preview, printed to the console
     python  Kramers.pyw --run --jobs desktop,claude
 
-Unattended runs never confirm mass deletions: those deletions are withheld
-and logged. If the backup drive is not connected the run is skipped cleanly.
+Nobody is asked anything: removals past the mass-deletion guard go ahead, or are
+withheld and logged, according to the "unattended_removals" setting (apply | skip).
+Missing or empty sources never delete, whatever the setting. If the backup drive is not connected the run is skipped cleanly.
 Afterwards a Windows notification reports the result, according to the
 "notify_scheduled" setting (always | problems | never); clicking it opens
 Kramers.
@@ -98,7 +99,8 @@ def main(argv: list) -> int:
     from .worker import set_process_background
     set_process_background(bool(cfg.get("low_priority", True)))
     result = config.run_jobs(cfg, jobs, dry_run=dry,
-                             log=(lambda m: print(m, flush=True)) if console else None)
+                             log=(lambda m: print(m, flush=True)) if console else None,
+                             confirm_deletes=config.unattended_confirm(cfg))
     title, text, level, attention = summary(result)
     if not dry:
         record_outcome(title, text, level)

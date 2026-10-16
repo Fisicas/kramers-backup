@@ -427,7 +427,7 @@ class App:
         self.opt_win = win
         self._build_options(win.body)
         bottom = ttk.Frame(win.body)
-        bottom.grid(row=12, column=0, columnspan=4, sticky="e", pady=(14, 0))
+        bottom.grid(row=13, column=0, columnspan=4, sticky="e", pady=(14, 0))
 
         def close():
             self._options_changed()
@@ -521,7 +521,18 @@ class App:
         ttk.Checkbutton(enc, text="Remind me in the main window when the backup drive is not encrypted",
                         variable=self.warn_enc_var, command=self._options_changed).grid(
             row=1, column=1, columnspan=3, sticky="w", pady=(6, 0))
-        btns.grid(row=10, column=0, columnspan=4, sticky="w", pady=(14, 0))
+        una = ttk.Frame(f)
+        una.grid(row=10, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        ttk.Label(una, text="When a scheduled or automatic backup would remove many files").pack(side="left")
+        self.unattended_labels = {"apply": "remove them (keep an exact mirror)",
+                                  "skip": "keep them and notify me"}
+        self.unattended_var = tk.StringVar(value=self.unattended_labels.get(
+            self.cfg.get("unattended_removals", "apply"), self.unattended_labels["apply"]))
+        uc = ttk.Combobox(una, textvariable=self.unattended_var, state="readonly", width=32,
+                          values=list(self.unattended_labels.values()), style=self.sty("TCombobox"))
+        uc.pack(side="left", padx=6)
+        uc.bind("<<ComboboxSelected>>", lambda _e: self._options_changed())
+        btns.grid(row=11, column=0, columnspan=4, sticky="w", pady=(14, 0))
         ttk.Button(btns, text="Create Desktop & Start Menu shortcuts", image=self.icons.glyph("link"),
                    compound="left", command=self._make_shortcuts, style=self.sty("TButton")).pack(side="left")
         ttk.Button(btns, text="Open settings folder", image=self.icons.glyph("settings"),
@@ -529,7 +540,7 @@ class App:
                    compound="left", command=lambda: open_path(str(config.config_dir()))
                    ).pack(side="left", padx=6)
         ttk.Label(f, text=f"Settings: {config.config_path()}", foreground="#888").grid(
-            row=11, column=0, columnspan=4, sticky="w", pady=(10, 0))
+            row=12, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
     # ------------------------------------------------------------------ jobs list
     def _job(self, jid):
@@ -775,6 +786,8 @@ class App:
         self.cfg["max_mb_per_s"] = self._int(self.speed_var.get(), 0, 0)
         self.cfg["archive_keep_days"] = self._int(self.keep_var.get(), 30, 0)
         self.cfg["warn_unencrypted"] = bool(self.warn_enc_var.get())
+        self.cfg["unattended_removals"] = next((k for k, v in self.unattended_labels.items()
+                                                if v == self.unattended_var.get()), "apply")
         serial = config.check_destination(self.cfg)[2]
         if serial in self._bitlocker:
             self._show_encryption(self._bitlocker[serial])
@@ -811,7 +824,7 @@ class App:
         if choice:
             self._start(choice["preview"], restore=choice["params"])
 
-    def _start(self, dry_run: bool, job_ids=None, restore=None):
+    def _start(self, dry_run: bool, job_ids=None, restore=None, unattended=False):
         if self.worker and self.worker.is_alive():
             return
         self._dest_changed()
@@ -828,7 +841,7 @@ class App:
         self.pbar.configure(value=0)
         self.pct_var.set("")
         self._rate_samples = []
-        self.worker = BackupProcess(copy.deepcopy(self.cfg), job_ids, dry_run, restore)
+        self.worker = BackupProcess(copy.deepcopy(self.cfg), job_ids, dry_run, restore, unattended)
         self.cancel, self.pause = self.worker.cancel, self.worker.pause
         self.worker.start()
         self._busy(True)
@@ -1043,7 +1056,7 @@ class App:
     def _auto_fire(self):
         if not (self.worker and self.worker.is_alive()):
             self._log("Auto-backup started.")
-            self._start(False)
+            self._start(False, unattended=True)          # nobody may be there to answer
         self._arm_autosync()
 
     # ------------------------------------------------------------------ schedule

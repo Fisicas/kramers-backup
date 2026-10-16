@@ -25,7 +25,7 @@ A **root** pairs one source (a folder or a single file) with one destination. A 
 2. **Applies the guards.**
    - A missing source leaves its backup untouched.
    - An empty source never deletes.
-   - Mass deletions need confirmation. Unattended runs withhold them.
+   - Mass deletions need confirmation when someone started the run. Unattended runs never wait for an answer: they apply the removals (the default) or withhold them, according to the `unattended_removals` setting.
 3. **Copies** new and changed files in a thread pool. Each file goes to `name.kramers-partial` first and is renamed into place only when complete.
 4. **Deletes** (mirror mode) or archives (versioned mode) what the source no longer has.
 

@@ -54,7 +54,8 @@ def confirm_request(plan: engine.RootPlan) -> dict:
             "sample": [a.rel for a in plan.deletes[:2000]]}
 
 
-def child_main(cfg, job_ids, dry_run, events, replies, cancel, pause, restore=None) -> None:
+def child_main(cfg, job_ids, dry_run, events, replies, cancel, pause, restore=None,
+               unattended=False) -> None:
     set_process_background(bool(cfg.get("low_priority", True)))
     last = [0.0]
 
@@ -77,7 +78,9 @@ def child_main(cfg, job_ids, dry_run, events, replies, cancel, pause, restore=No
         else:
             result = config.run_jobs(cfg, job_ids, dry_run=dry_run, progress_cb=progress,
                                      cancel=cancel, log=lambda m: events.put(("log", m)),
-                                     confirm_deletes=confirm, pause=pause)
+                                     confirm_deletes=(config.unattended_confirm(cfg)
+                                                      if unattended else confirm),
+                                     pause=pause)
     except BaseException as exc:                     # report, never die silently
         events.put(("log", f"ERROR: {type(exc).__name__}: {exc}"))
     events.put(("done", summarize(result), cfg.get("dest_volume_serial", "")))
@@ -86,7 +89,8 @@ def child_main(cfg, job_ids, dry_run, events, replies, cancel, pause, restore=No
 class BackupProcess:
     """One backup run in a child process."""
 
-    def __init__(self, cfg: dict, job_ids, dry_run: bool, restore: dict | None = None):
+    def __init__(self, cfg: dict, job_ids, dry_run: bool, restore: dict | None = None,
+                 unattended: bool = False):
         ctx = mp.get_context("spawn")
         self.events = ctx.Queue()
         self.replies = ctx.Queue()
@@ -97,7 +101,7 @@ class BackupProcess:
         self.finished = False
         self.proc = ctx.Process(target=child_main, name="kramers-backup", daemon=True,
                                 args=(cfg, job_ids, dry_run, self.events, self.replies,
-                                      self.cancel, self.pause, restore))
+                                      self.cancel, self.pause, restore, unattended))
 
     def start(self) -> None:
         self.proc.start()
