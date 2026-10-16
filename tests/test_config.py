@@ -208,6 +208,19 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(runner.should_notify("problems", False))
         self.assertFalse(runner.should_notify("never", True))
 
+    def test_scheduled_run_records_outcome_even_when_drive_missing(self):
+        from kramers import runner
+        cfg = json.loads(json.dumps(C.DEFAULTS))
+        cfg["dest_root"] = "Q:\\Nowhere" if os.name == "nt" else "/nonexistent/x"
+        if os.name == "nt" and os.path.exists("Q:\\"):
+            self.skipTest("Q: exists here")
+        cfg["notify_scheduled"] = "never"
+        C.save_config(cfg)
+        self.assertEqual(runner.main(["--run"]), 0)
+        last = C.load_state()["last_scheduled"]
+        self.assertIn("not connected", last["summary"])
+        self.assertIn("skipped", last["title"])
+
     def test_presets_exclude_credentials(self):
         claude_home = next(s for s in P.CLAUDE.roots if s.key == "home")
         self.assertIn("/.credentials.json", claude_home.excludes)
