@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+**New**
+- **The backup drive is found by identity, not by letter.** If Windows gives the drive another letter
+  (for example K: becomes L: after plugging drives in a different order), Kramers finds it by its
+  volume serial, or by its label together with the Kramers marker, and follows it. The log says so.
+- **Picking a drive or parent folder uses the existing backup.** Choosing `L:\` when `L:\Backups`
+  holds your Kramers backup uses `L:\Backups`, and a saved destination that points at such a root is
+  corrected. A bare drive root becomes `<drive>\Backups`, so a drive root never gets a second full copy.
+- **Free-space check:** a backup that would not fit on the drive stops before copying anything, and
+  a preview warns.
+- **Folder icons on the backup drive:** each set's backup folder shows the same icon as in the app,
+  copied at full resolution (up to 256 px) from the program or Windows icon library,
+  and the backup folder shows the Kramers icon (hidden `.kramers.ico` + `desktop.ini`; never mirrored
+  or removed).
+- The Claude set includes the Claude desktop app's new data location,
+  `%LOCALAPPDATA%\Claude-Data\claude_*`. The earlier locations are kept as optional fallbacks.
+
 **Changed**
 - **Unattended backups never stop to ask.** Previously, an automatic backup while the window was open
   waited for an answer when it hit the mass-deletion guard. A scheduled backup withheld those

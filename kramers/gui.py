@@ -676,22 +676,32 @@ class App:
         d = filedialog.askdirectory(parent=self.root, title="Choose the backup destination folder",
                                     initialdir=self.dest_var.get() or "/")
         if d:
-            self.dest_var.set(os.path.normpath(d))
+            folder, reason = config.suggest_destination(os.path.normpath(d))
+            if reason:
+                messagebox.showinfo(APP_NAME, reason, parent=self.root)
+            self.dest_var.set(folder)
             self._dest_changed()
 
     def _dest_changed(self):
         new = os.path.normpath(self.dest_var.get().strip()) if self.dest_var.get().strip() else ""
         if new == self.cfg.get("dest_root"):
             return
-        old_drive = os.path.splitdrive(self.cfg.get("dest_root", ""))[0].lower()
         self.cfg["dest_root"] = new
-        if os.path.splitdrive(new)[0].lower() != old_drive:
-            self.cfg["dest_volume_serial"] = ""      # recorded on the next run
+        # An explicit choice: remember the drive it is on now (or on the next run if absent).
+        serial, label = winshell.volume_info(new) if new and os.path.exists(
+            os.path.splitdrive(new)[0] + "\\") else ("", "")
+        self.cfg["dest_volume_serial"], self.cfg["dest_volume_label"] = serial, label
         self._save()
         self._load_jobs()
         self._refresh_dest()
 
     def _refresh_dest(self):
+        moved = config.resolve_destination(self.cfg)       # drive letter changed, or a root was set
+        if moved:
+            self.dest_var.set(self.cfg["dest_root"])
+            self._save()
+            self._load_jobs()
+            self._log(moved)
         status, msg, serial, label = config.check_destination(self.cfg)
         root = self.cfg.get("dest_root", "")
         drive = os.path.splitdrive(root)[0] + "\\" if root else ""
@@ -750,7 +760,7 @@ class App:
         if serial and messagebox.askyesno(
                 APP_NAME, f"Use '{label}' (serial {serial}) as the backup drive from now on?",
                 parent=self.root):
-            self.cfg["dest_volume_serial"] = serial
+            self.cfg["dest_volume_serial"], self.cfg["dest_volume_label"] = serial, label
             self._save()
             self._refresh_dest()
 

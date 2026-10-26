@@ -38,7 +38,8 @@ A file counts as changed when its size differs or its mtime differs by more than
 ## Safety model
 
 - **One-way only.** Nothing on the source side is ever written by a backup. A restore never deletes.
-- **Destination identity.** The backup volume's serial number is recorded, so a different drive that appears under the same letter is never written to.
+- **Destination identity.** The backup volume's serial number and label are recorded. `config.resolve_destination` follows the volume to its current letter (by serial, or by label plus the Kramers marker), and steps from a drive root into the folder holding the marker, so a different drive under the old letter is never written to, and a root never receives a second full copy.
+- **Free space.** `engine.space_shortfall` compares the bytes about to be written with each destination volume's free space, minus a 256 MB margin, and stops before copying.
 - **One run at a time.** A lock file on the backup drive stops the app and the scheduled task from running at once.
 - **No secrets.** Credential files are excluded and token keys are redacted. The backup drive should still be encrypted, because the backups contain private documents and AI conversation histories. Options shows the drive's BitLocker state, with an optional reminder in the main window.
 

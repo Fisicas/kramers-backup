@@ -256,6 +256,87 @@ def validate(cfg: dict) -> list:
 # Destination identity, marker, restore guide
 # --------------------------------------------------------------------------- #
 
+def read_marker(folder: str) -> Optional[dict]:
+    try:
+        data = json.loads((Path(folder) / MARKER).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) and data.get("app") == APP_NAME else None
+    except (OSError, ValueError):
+        return None
+
+
+def find_backup_folder(path: str) -> Optional[str]:
+    """`path` itself or a folder directly inside it that holds a Kramers backup (its marker)."""
+    if not path or not os.path.isdir(path):
+        return None
+    if read_marker(path):
+        return os.path.normpath(path)
+    try:
+        children = sorted(e.path for e in os.scandir(path) if e.is_dir(follow_symlinks=False))
+    except OSError:
+        return None
+    found = [c for c in children if read_marker(c)]
+    return os.path.normpath(found[0]) if len(found) == 1 else None
+
+
+def is_drive_root(path: str) -> bool:
+    drive, rest = os.path.splitdrive(os.path.normpath(path))
+    return bool(drive) and rest in ("", "\\", "/")
+
+
+def suggest_destination(path: str) -> tuple:
+    """Where to back up when the user picks `path`: (folder, reason).
+
+    A folder holding an existing Kramers backup (the picked one or one directly inside it,
+    such as L:\\ -> L:\\Backups) is used as is, so a drive root never gets a second full copy.
+    A drive root without one becomes <drive>\\Backups. reason is '' when nothing changed."""
+    path = os.path.normpath(path)
+    existing = find_backup_folder(path)
+    if existing and os.path.normcase(existing) != os.path.normcase(path):
+        return existing, f"Found your existing Kramers backup in {existing}; using it."
+    if existing:
+        return path, ""
+    if is_drive_root(path):
+        target = os.path.join(path, "Backups")
+        return target, f"Backups go into {target} rather than the root of the drive."
+    return path, ""
+
+
+def resolve_destination(cfg: dict) -> str:
+    """Keep dest_root pointing at the backup even when Windows gives the drive another letter.
+
+    The drive is recognised by its volume serial (recorded on the first backup), or -- if that
+    serial is mounted nowhere -- by its label together with the Kramers marker in the backup
+    folder. If dest_root names a drive root that holds the Kramers backup folder, that folder
+    is used. Updates cfg in place; returns a human-readable note when something changed."""
+    root = cfg.get("dest_root", "")
+    if not root or os.name != "nt":
+        return ""
+    serial, label = cfg.get("dest_volume_serial", ""), cfg.get("dest_volume_label", "")
+    drive, rest = os.path.splitdrive(os.path.normpath(root))
+    new = root
+    notes = []
+    if serial and winshell.volume_info(root)[0] != serial:
+        vols = winshell.mounted_volumes()
+        hit = next((r for r, s, _ in vols if s == serial), None)
+        if hit is None and label:                 # same name, and our marker is there
+            hit = next((r for r, s, lab in vols if lab == label
+                        and (read_marker(os.path.join(r, rest.lstrip("\\"))) or {})
+                        .get("volume_serial") == serial), None)
+        if hit:
+            new = os.path.join(hit, rest.lstrip("\\")) if rest.strip("\\") else hit
+            notes.append(f"The backup drive{(' ' + repr(label)) if label else ''} is now "
+                         f"{hit[:2]} (it was {drive}); Kramers follows it.")
+    if is_drive_root(new):
+        inside = find_backup_folder(new)
+        if inside and os.path.normcase(inside) != os.path.normcase(new):
+            notes.append(f"Using the existing Kramers backup folder {inside}.")
+            new = inside
+    if os.path.normcase(os.path.normpath(new)) == os.path.normcase(os.path.normpath(root)):
+        return ""
+    cfg["dest_root"] = os.path.normpath(new)
+    return " ".join(notes)
+
+
 def check_destination(cfg: dict) -> tuple:
     """(status, message, serial, label); status is 'ok' | 'offline' | 'wrong-drive'."""
     dest_root = cfg.get("dest_root", "")
@@ -324,6 +405,9 @@ def run_jobs(cfg: dict, job_ids: Optional[list] = None, *, dry_run: bool = False
     """Check the destination, export recipes, run the engine, write logs and state."""
     ui_log = log or (lambda _m: None)
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    moved = resolve_destination(cfg)
+    if moved:
+        save_config(cfg)
     status, message, serial, label = check_destination(cfg)
     log_dir = (Path(cfg["dest_root"]) / "_logs") if status == "ok" else (config_dir() / "logs")
     try:
@@ -348,10 +432,13 @@ def run_jobs(cfg: dict, job_ids: Optional[list] = None, *, dry_run: bool = False
             phase = "done" if status == "offline" else "error"
             return engine.RunResult(progress=engine.Progress(phase=phase), plans=[], stamp=stamp,
                                     dest_offline=True, message=message)
-        if not cfg.get("dest_volume_serial") and serial:
-            cfg["dest_volume_serial"] = serial
+        if moved:
+            log_line(moved)
+        if serial and (not cfg.get("dest_volume_serial") or cfg.get("dest_volume_label") != label):
+            if not cfg.get("dest_volume_serial"):
+                log_line(f"Backup drive recorded: '{label}' (serial {serial}).")
+            cfg["dest_volume_serial"], cfg["dest_volume_label"] = serial, label
             save_config(cfg)
-            log_line(f"Backup drive recorded: '{label}' (serial {serial}).")
         problems = validate(cfg)
         if problems:
             for p in problems:
@@ -397,6 +484,9 @@ def run_jobs(cfg: dict, job_ids: Optional[list] = None, *, dry_run: bool = False
                 write_restore_guide(cfg)
             except OSError as exc:
                 log_line(f"WARNING: could not write marker/RESTORE.md: {exc}")
+            from . import folder_icons
+            if folder_icons.apply(cfg, job_preset, RESOURCES):
+                log_line("Folder icons set on the backup drive.")
             removed = prune_archives(cfg)
             if removed:
                 log_line(f"Archive clean-up: removed {removed} archive folder(s) older than "
@@ -480,6 +570,8 @@ def run_restore(cfg: dict, job_id: str, root_keys: Optional[list] = None,
     ui_log = log or (lambda _m: None)
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     job = next(j for j in cfg["jobs"] if j["id"] == job_id)
+    if resolve_destination(cfg):
+        save_config(cfg)
     status, message, serial, label = check_destination(cfg)
     if status != "ok":
         ui_log("STOPPED: " + message)
