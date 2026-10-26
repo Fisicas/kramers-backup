@@ -241,7 +241,7 @@ class ConfigTests(unittest.TestCase):
         from kramers import runner
         dest = self._mass_removal_cfg("apply")
         self.assertEqual(runner.main(["--run"]), 0)
-        self.assertEqual(sorted(p.name for p in dest.iterdir()), [f"k{i}.txt" for i in range(10)])
+        self.assertEqual(sorted(p.name for p in dest.glob("*.txt")), [f"k{i}.txt" for i in range(10)])
 
     def test_unattended_run_can_keep_files_instead(self):
         from kramers import runner

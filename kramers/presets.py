@@ -84,6 +84,7 @@ CLAUDE_APP_ONLY = (
     "mcp-user-tool-toggles.json", "claude-code-sessions", "local-agent-mode-sessions",
     "git-worktrees.json", "space-memory-copy", "spaces-present",
     "cowork-enabled-cli-ops.json", "cowork-spawn-settings", "plan-usage-history.json",
+    "side-session-notes", "ccd-session-presets.json",
 )
 CLAUDE_APP_REDACT = (("config.json", TOKEN_KEYS), ("claude_desktop_config.json*", TOKEN_KEYS))
 
@@ -98,9 +99,15 @@ CLAUDE = Preset(
                            "/.credentials.json", "/statsig", "/todos/*.lock")),
         RootSpec("homejson", "~/.claude.json", r"%USERPROFILE%\.claude.json", ".claude.json",
                  redact_json=(("*", (r"^oauth:", r"(?i)(secret|password|api[_-]?key|credential)")),)),
-        # The Claude desktop app is an MSIX package: its data really lives in
-        # the package's LocalCache. Older (non-MSIX) installs use %APPDATA%.
-        RootSpec("app-msix", "Claude app data", r"%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude",
+        # Where the Claude desktop app keeps its data: since late 2026 in
+        # %LOCALAPPDATA%\Claude-Data\claude_<package id>; before that in the MSIX
+        # package's LocalCache, or %APPDATA%\Claude for classic installs. A moved
+        # location leaves only a ".user-data-left..." note behind, so the old roots
+        # read as empty and their earlier backups are left untouched.
+        RootSpec("app-data", "Claude app data", r"%LOCALAPPDATA%\Claude-Data\claude_*",
+                 "AppData-Local-Claude-Data", only=CLAUDE_APP_ONLY,
+                 redact_json=CLAUDE_APP_REDACT, optional=True),
+        RootSpec("app-msix", "Claude app data (earlier location)", r"%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude",
                  "AppData-Roaming-Claude-MSIX", only=CLAUDE_APP_ONLY,
                  redact_json=CLAUDE_APP_REDACT, optional=True),
         RootSpec("app", "Claude app data (classic install)", r"%APPDATA%\Claude",

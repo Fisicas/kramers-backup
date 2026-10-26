@@ -76,7 +76,8 @@ DEFAULT_EXCLUDES = (
 )
 
 # Folders the tool keeps at the top of a destination; never treated as data.
-TOOL_DIRS = ("_archive", "_logs", "_BackupTool", "_kramers")
+TOOL_DIRS = ("_archive", "_logs", "_BackupTool", "_kramers",
+             "desktop.ini", ".kramers.ico")    # folder icon files (folder_icons.py)
 
 SQLITE_PATTERNS = ("*.sqlite", "*.sqlite3", "*.db", "*.eni", "*.enl")   # .eni/.enl: EndNote
 SQLITE_SIDECARS = tuple(f"{p}-{s}" for p in SQLITE_PATTERNS for s in ("wal", "shm", "journal"))
@@ -219,6 +220,36 @@ class RunResult:
 
 
 ProgressCB = Callable[[Progress], None]
+
+
+SPACE_MARGIN = 256 * 1024 * 1024       # keep this much free on the backup drive
+
+
+def _gb(n: float) -> str:
+    return f"{n / 1024 ** 3:,.1f} GB"
+
+
+def space_shortfall(copies: list) -> str:
+    """'' if every destination volume has room for the bytes about to be written,
+    else a message. copies: [(RootPlan, Action)]."""
+    need: dict = {}
+    for plan, act in copies:
+        dest = os.path.abspath(plan.root.dest)
+        vol = os.path.splitdrive(dest)[0] or os.sep
+        probe = dest
+        while not os.path.exists(probe) and os.path.dirname(probe) != probe:
+            probe = os.path.dirname(probe)
+        need.setdefault(vol, [0, probe])[0] += act.size
+    for vol, (n, probe) in need.items():
+        try:
+            free = shutil.disk_usage(probe).free
+        except OSError:
+            continue
+        if n > free - SPACE_MARGIN:
+            return (f"Not enough free space on {vol}: this backup needs {_gb(n)} but only "
+                    f"{_gb(free)} is free. Nothing was copied. Check the destination folder "
+                    "(is it the existing backup?) or free some space.")
+    return ""
 
 
 def approve_unattended(plan: "RootPlan") -> bool:
@@ -732,6 +763,17 @@ def _run(roots, progress_cb, cancel, dry_run, log, confirm_deletes, guard, worke
     deletes = [(p, a) for p in result.plans for a in p.deletes]
     progress.files_total = len(copies) + len(deletes)
     progress.bytes_total = sum(a.size for _, a in copies)
+
+    short = space_shortfall(copies)
+    if short:
+        if dry_run:
+            progress.add(warnings=1)
+            log("WARNING: " + short.replace("Nothing was copied. ", ""))
+        else:
+            result.message = short
+            progress.add(errors=1)
+            log("STOPPED: " + short)
+            return finish("error")
 
     if dry_run:
         log(f"Preview complete: {progress.files_total} actions, "

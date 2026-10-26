@@ -147,6 +147,26 @@ def volume_info(path: str) -> tuple[str, str]:
     return f"{s >> 16:04X}-{s & 0xFFFF:04X}", label.value
 
 
+def mounted_volumes() -> list:
+    """[(drive root 'L:\\', serial, label)] for every lettered volume that is mounted."""
+    if not IS_WINDOWS:
+        return []
+    out = []
+    mask = _kernel32.GetLogicalDrives()
+    for i in range(26):
+        if mask & (1 << i):
+            root = f"{chr(65 + i)}:\\"
+            serial, label = volume_info(root)
+            if serial:
+                out.append((root, serial, label))
+    return out
+
+
+def find_volume(serial: str) -> Optional[str]:
+    """Drive root currently holding the volume with this serial, or None."""
+    return next((r for r, s, _ in mounted_volumes() if s == serial), None)
+
+
 def bitlocker_state(path: str) -> str:
     """'on' | 'off' | 'unknown' for the volume holding path (no admin rights needed).
 
@@ -355,6 +375,71 @@ def glyph_rgba(char: str, px: int, rgb=(0, 0, 0), font: Optional[str] = None) ->
     for i in range(0, len(out), 4):
         out[i], out[i + 1], out[i + 2], out[i + 3] = r, g, b, raw[i + 1]
     return bytes(out)
+
+
+def icon_resource_images(module: str, index: int = 0) -> list:
+    """The icon images embedded in an .exe/.dll, exactly as stored: [(size, bpp, data)],
+    best colour depth per size (data is a PNG for 256 px, else an icon DIB -- both valid
+    inside an .ico). index >= 0 is the n-th icon group; index < 0 is resource id -index,
+    the convention used by desktop.ini and shell icon locations."""
+    if not IS_WINDOWS or not module:
+        return []
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.LoadLibraryExW.restype = wintypes.HMODULE
+    k.LoadLibraryExW.argtypes = [wintypes.LPCWSTR, wintypes.HANDLE, wintypes.DWORD]
+    k.FindResourceW.restype = wintypes.HRSRC
+    k.FindResourceW.argtypes = [wintypes.HMODULE, ctypes.c_void_p, ctypes.c_void_p]
+    k.LoadResource.restype = wintypes.HGLOBAL
+    k.LoadResource.argtypes = [wintypes.HMODULE, wintypes.HRSRC]
+    k.LockResource.restype = ctypes.c_void_p
+    k.LockResource.argtypes = [wintypes.HGLOBAL]
+    k.SizeofResource.restype = wintypes.DWORD
+    k.SizeofResource.argtypes = [wintypes.HMODULE, wintypes.HRSRC]
+    k.FreeLibrary.argtypes = [wintypes.HMODULE]
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMODULE, ctypes.c_void_p,
+                                   ctypes.c_void_p, ctypes.c_void_p)
+    k.EnumResourceNamesW.argtypes = [wintypes.HMODULE, ctypes.c_void_p, enum_proc, ctypes.c_void_p]
+    rt_icon, rt_group = 3, 14
+    h = k.LoadLibraryExW(os.path.expandvars(module), None, 0x2 | 0x20)  # as data + image resource
+    if not h:
+        return []
+
+    def res(typ, name):
+        r = k.FindResourceW(h, name, typ)
+        if not r:
+            return None
+        return ctypes.string_at(k.LockResource(k.LoadResource(h, r)), k.SizeofResource(h, r))
+
+    try:
+        if index < 0:
+            group = res(rt_group, ctypes.c_void_p(-index))
+        else:
+            names = []
+            cb = enum_proc(lambda _m, _t, n, _p: (names.append(n), len(names) <= index)[1])
+            k.EnumResourceNamesW(h, rt_group, cb, None)
+            group = res(rt_group, ctypes.c_void_p(names[index])) if len(names) > index else None
+        if not group:
+            return []
+        best: dict = {}
+        for i in range(struct.unpack_from("<H", group, 4)[0]):
+            w, _h, _c, _r, _p, bpp, _s, iid = struct.unpack_from("<BBBBHHIH", group, 6 + 14 * i)
+            size = w or 256
+            data = res(rt_icon, ctypes.c_void_p(iid))
+            if data and (size not in best or bpp > best[size][0]):
+                best[size] = (bpp, data)
+        return [(size, bpp, data) for size, (bpp, data) in sorted(best.items())]
+    finally:
+        k.FreeLibrary(h)
+
+
+def icon_location(path: str) -> Optional[tuple[str, int]]:
+    """(module, index) of the icon Explorer shows for path: a folder's desktop.ini
+    IconResource, or an executable's own first icon."""
+    if os.path.isdir(path):
+        return _desktop_ini_icon(path)
+    if path.lower().endswith((".exe", ".dll")) and os.path.isfile(path):
+        return path, 0
+    return None
 
 
 def rgba_to_png(w: int, h: int, rgba: bytes) -> bytes:

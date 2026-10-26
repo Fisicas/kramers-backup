@@ -54,7 +54,7 @@ half-integer-spin state has a partner of equal energy. Here, every file gets a p
 |---|---|---|
 | **Desktop**, **Downloads** | the Windows known folders (relocated folders are followed) | |
 | **EndNote** | `Documents\EndNote` (editable) | Library databases are snapshotted. A library EndNote holds locked is retried once EndNote is closed. `login.txt` is never copied. |
-| **Claude** | `~\.claude`, `~\.claude.json`, the Claude desktop app's data (MSIX `LocalCache` or classic `%APPDATA%\Claude`), small parts of `~\.claude-science` | CLAUDE.md, settings, skills, plugins, per-project memory, sessions, MCP servers, extensions. Caches and the multi-GB VM bundle are skipped. |
+| **Claude** | `~\.claude`, `~\.claude.json`, the Claude desktop app's data (`%LOCALAPPDATA%\Claude-Data`, or the earlier MSIX `LocalCache` / classic `%APPDATA%\Claude`), small parts of `~\.claude-science` | CLAUDE.md, settings, skills, plugins, per-project memory, sessions, MCP servers, extensions. Caches and the multi-GB VM bundle are skipped. |
 | **Codex** | `~\.codex` | config.toml, AGENTS.md, skills, memories, automations, plugins, sessions and state databases. Logs, sandbox binaries and temp files are skipped. |
 | **Python environments** | every `~\.venvs\*` and `~\miniconda3\envs\*` (also anaconda3, miniforge3, mambaforge), the base Python the venvs were built from, `~\.gitconfig`, `~\.config` | Full copies, plus `Environments\recipes` with `pip freeze`, `conda list --explicit` and `environment.yml` for each environment. |
 
@@ -69,6 +69,7 @@ On the backup drive:
 ├─ _archive\      versioned mode only (old versions; pruned after 30 days by default)
 ├─ _logs\         one log per run
 ├─ RESTORE.md     where each folder came from (regenerated after every backup)
+│                 (each folder shows the same icon as in the app)
 └─ .kramers-target.json   identifies the drive
 ```
 
@@ -122,7 +123,9 @@ On a new PC, install the apps first, then restore. `RESTORE.md` in the backup li
 - **Missing source:** the set is skipped and its backup is left untouched.
 - **Empty source:** if a source folder is empty but its backup is not, nothing is deleted.
 - **Mass deletions:** if a run would remove more than 20% of a set (and at least 50 files), or more than 5,000 files, **Back up now** asks first and shows the list. Unattended runs (scheduled, or automatic while Kramers is open) never stop to ask. By default they carry out the removals so the backup stays an exact mirror, and record them in the log. Options can make them keep the files and notify you instead. The thresholds are set in Options.
-- **Wrong drive:** the backup drive's volume serial number is recorded. If another drive appears under the same letter, nothing is written until you choose **Use this drive**.
+- **Wrong drive / new letter:** the backup drive's volume serial number (and label) is recorded. If the drive comes back under another letter, Kramers follows it. If another drive appears under the old letter, nothing is written to it.
+- **Right folder:** picking a drive whose `Backups` folder already holds a Kramers backup uses that folder. A bare drive root becomes `<drive>\Backups`, so a backup never starts a second full copy beside the first.
+- **Free space:** a backup that would not fit on the drive stops before copying anything.
 - **One run at a time:** a lock file on the backup drive stops the app and the scheduled task from overlapping.
 - **Interrupted runs:** copies go to `*.kramers-partial` first and are renamed only when complete. Leftovers are cleaned up on the next run.
 - **Files in use, or deleted mid-run,** are reported as *in use* or *gone* and retried next time. They are not counted as errors.
