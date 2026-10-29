@@ -15,6 +15,11 @@
   copied at full resolution (up to 256 px) from the program or Windows icon library,
   and the backup folder shows the Kramers icon (hidden `.kramers.ico` + `desktop.ini`; never mirrored
   or removed).
+- **Backup-set columns fit their text and can be resized.** Set, Include, Size, Mode and Last
+  backup size themselves to what they show (so "⚠ Warnings" is no longer cut off at any display
+  scale); Source and Backed up to share the rest of the width. Drag a column edge to resize it (the
+  width is remembered), double-click the edge to fit it again, or right-click the header to fit all.
+  A horizontal scrollbar appears only when the columns no longer fit.
 - The Claude set includes the Claude desktop app's new data location,
   `%LOCALAPPDATA%\Claude-Data\claude_*`. The earlier locations are kept as optional fallbacks.
 

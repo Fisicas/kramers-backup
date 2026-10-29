@@ -10,7 +10,8 @@ checkboxes) and draw the big, stretched ones with clam's flat, vector
 elements in Sun Valley's colours.
 
     Flat.Treeview (+ .Heading)   Flat.TEntry   Flat.TCombobox
-    Flat.Horizontal.TProgressbar Flat.Vertical.TScrollbar   Flat.TButton   Flat.Accent.TButton
+    Flat.Horizontal.TProgressbar Flat.Vertical.TScrollbar   Flat.Horizontal.TScrollbar
+    Flat.TButton   Flat.Accent.TButton
 """
 from __future__ import annotations
 
@@ -84,6 +85,13 @@ def install(root, dark: bool) -> bool:
                  bordercolor=p["bg"], lightcolor=p["thumb"], darkcolor=p["thumb"],
                  arrowsize=10, gripcount=0)
     st.map("Flat.Vertical.TScrollbar", background=[("active", p["thumb_hot"])],
+           lightcolor=[("active", p["thumb_hot"])], darkcolor=[("active", p["thumb_hot"])])
+    st.layout("Flat.Horizontal.TScrollbar", [("Flat.trough", {"sticky": "we", "children": [
+        ("Flat.thumb", {"expand": "1", "sticky": "nswe"})]})])
+    st.configure("Flat.Horizontal.TScrollbar", troughcolor=p["bg"], background=p["thumb"],
+                 bordercolor=p["bg"], lightcolor=p["thumb"], darkcolor=p["thumb"],
+                 arrowsize=10, gripcount=0)
+    st.map("Flat.Horizontal.TScrollbar", background=[("active", p["thumb_hot"])],
            lightcolor=[("active", p["thumb_hot"])], darkcolor=[("active", p["thumb_hot"])])
 
     button_layout = [("Flat.Button.border", {"sticky": "nswe", "border": "1", "children": [
