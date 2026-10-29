@@ -18,6 +18,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 
 from . import APP_ID, APP_NAME, __version__, config, engine, fastui, presets, shortcuts, winshell
 from .worker import BackupProcess
@@ -182,18 +183,41 @@ class App:
                             ("backup", "Backed up to", 140, True), ("size", "Size", 145, False),
                             ("mode", "Mode", 145, False), ("last", "Last backup", 135, False)):
             self.tree.heading(c, text=t)
-            self.tree.column(c, width=w, stretch=st, anchor={"on": "center", "size": "e"}.get(c, "w"))
+            self.tree.column(c, width=w, minwidth=120 if st else 40, stretch=st,
+                             anchor={"on": "center", "size": "e"}.get(c, "w"))
+        # Fixed columns size themselves to their text (fonts scale with the display, pixel
+        # widths don't); a column the user drags or double-clicks keeps that width.
+        for c, w in self.cfg.get("column_widths", {}).items():
+            if c in ("#0",) + cols:
+                self.tree.column(c, width=int(w))
+        style = ttk.Style()
+        self._cell_font = tkfont.Font(font=style.lookup(self.sty("Treeview"), "font") or "TkDefaultFont")
+        self._head_font = tkfont.Font(
+            font=style.lookup(self.sty("Treeview") + ".Heading", "font") or "TkHeadingFont")
+        self._resizing = None
         self.tree.grid(row=0, column=0, sticky="nsew")
         sb = ttk.Scrollbar(sets, orient="vertical", command=self.tree.yview,
                            style=self.sty("Vertical.TScrollbar"))
         sb.grid(row=0, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=sb.set)
+        xsb = ttk.Scrollbar(sets, orient="horizontal", command=self.tree.xview,
+                            style=self.sty("Horizontal.TScrollbar"))
+        xsb.grid(row=1, column=0, sticky="ew")
+        xsb.grid_remove()
+
+        def xscroll(first, last):          # shown only while columns are wider than the table
+            if float(first) <= 0 and float(last) >= 1:
+                xsb.grid_remove()
+            else:
+                xsb.grid()
+            xsb.set(first, last)
+        self.tree.configure(yscrollcommand=sb.set, xscrollcommand=xscroll)
         self.tree.bind("<Button-1>", self._tree_click)
+        self.tree.bind("<ButtonRelease-1>", self._tree_release, add="+")
         self.tree.bind("<Double-1>", self._tree_double)
         self.tree.bind("<Button-3>", self._tree_menu)
         self.tree.bind("<space>", lambda e: self._toggle_selected())
         bar = ttk.Frame(sets)
-        bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        bar.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         ttk.Button(bar, text="Add folder…", image=I.glyph("add"), compound="left",
                    command=self._add_folder, style=self.sty("TButton")).pack(side="left")
         ttk.Button(bar, text="Edit…", image=I.glyph("edit"), compound="left",
@@ -586,8 +610,60 @@ class App:
                                   if total_b else " — size appears after a preview or backup"))
         if sel and self.tree.exists(sel[0]):
             self.tree.selection_set(sel)
+        self._fit_columns()
+
+    # ------------------------------------------------------------------ table columns
+    def _col_name(self, col: str) -> str:
+        """'#3' (as identify_column reports it) -> 'backup'."""
+        return col if col == "#0" else self.tree["columns"][int(col[1:]) - 1]
+
+    def _fit_columns(self, only=None):
+        """Size the fixed columns (or just `only`) to their heading and cell text, then let
+        Source and Backed-up-to take up whatever width is left over."""
+        user = self.cfg.get("column_widths", {})
+        for col in only or ("#0", "on", "size", "mode", "last"):
+            if only is None and col in user:
+                continue
+            rows = self.tree.get_children()
+            texts = [self.tree.item(r, "text") if col == "#0" else self.tree.set(r, col) for r in rows]
+            w = max([self._head_font.measure(self.tree.heading(col, "text"))] +
+                    [self._cell_font.measure(t) for t in texts]) + 24
+            if col == "#0":
+                w += self.icons.px + 24          # expander gap + set icon
+            self.tree.column(col, width=max(w, self.tree.column(col, "minwidth")))
+        self._fill_width()
+
+    def _fill_width(self):
+        """Give the stretching columns the spare width, or take it back from them, so the
+        table fills its frame without needing the horizontal scrollbar when it fits."""
+        avail = self.tree.winfo_width() - 4
+        if avail < 100:                              # not laid out yet; Tk stretches on first map
+            return
+        cols = ("#0",) + tuple(self.tree["columns"])
+        spare = avail - sum(self.tree.column(c, "width") for c in cols)
+        stretch = [c for c in cols if self.tree.column(c, "stretch")]
+        for i, c in enumerate(stretch):
+            share = spare // (len(stretch) - i)
+            w = self.tree.column(c, "width")
+            new = max(w + share, self.tree.column(c, "minwidth"))
+            self.tree.column(c, width=new)
+            spare -= new - w
+
+    def _tree_release(self, _evt):
+        col, self._resizing = self._resizing, None
+        if col:
+            self.cfg.setdefault("column_widths", {})[col] = self.tree.column(col, "width")
+            self._save()
+
+    def _reset_columns(self):
+        self.cfg["column_widths"] = {}
+        self._save()
+        self._fit_columns()
 
     def _tree_click(self, evt):
+        if self.tree.identify_region(evt.x, evt.y) == "separator":
+            self._resizing = self._col_name(self.tree.identify_column(evt.x))
+            return
         if self.tree.identify_column(evt.x) == "#1" and self.tree.identify_region(evt.x, evt.y) == "cell":
             row = self.tree.identify_row(evt.y)
             if row:
@@ -596,6 +672,12 @@ class App:
                 return "break"
 
     def _tree_double(self, evt):
+        if self.tree.identify_region(evt.x, evt.y) == "separator":   # fit that column to its text
+            col = self._col_name(self.tree.identify_column(evt.x))
+            self.cfg.get("column_widths", {}).pop(col, None)
+            self._save()
+            self._fit_columns([col])
+            return "break"
         if self.tree.identify_row(evt.y) and self.tree.identify_column(evt.x) != "#1":
             self._edit_selected()
 
@@ -607,6 +689,11 @@ class App:
         self._load_jobs()
 
     def _tree_menu(self, evt):
+        if self.tree.identify_region(evt.x, evt.y) in ("heading", "separator"):
+            m = tk.Menu(self.root, tearoff=0)
+            m.add_command(label="Fit columns to their contents", command=self._reset_columns)
+            m.tk_popup(evt.x_root, evt.y_root)
+            return
         row = self.tree.identify_row(evt.y)
         if not row:
             return

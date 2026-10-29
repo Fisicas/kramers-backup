@@ -24,3 +24,7 @@ dist/
 
 # Private planning notes (kept locally, never published)
 docs/plan/
+
+# Windows folder icon (Desktop reorg 2026-10-28)
+desktop.ini
+.folder-icon*.ico

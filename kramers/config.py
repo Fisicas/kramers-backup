@@ -54,6 +54,7 @@ DEFAULTS = {
     "notify_scheduled": "problems",      # scheduled runs: always | problems | never
     "unattended_removals": "apply",      # unattended runs past the guard: apply | skip
     "warn_unencrypted": False,           # main-window reminder when BitLocker is off
+    "column_widths": {},                 # backup-sets table columns the user resized, in pixels
 }
 
 
