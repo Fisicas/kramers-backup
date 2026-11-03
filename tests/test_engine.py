@@ -112,6 +112,67 @@ class MirrorBasics(Base):
         self.assertEqual(sorted(p.name for p in self.dst.iterdir()), ["a.txt"])
 
 
+@unittest.skipUnless(E.IS_WINDOWS, "file attributes are a Windows feature")
+class Attributes(Base):
+    RO, HIDDEN, SYSTEM = 0x1, 0x2, 0x4
+
+    def attrs(self, p: Path) -> int:
+        return os.stat(p, follow_symlinks=False).st_file_attributes & E.ATTR_MASK
+
+    def set_attrs(self, p: Path, a: int) -> None:
+        E._set_attrs(str(p), a)
+
+    def tearDown(self):
+        for p in self.base.rglob("*"):
+            self.set_attrs(p, 0)
+        super().tearDown()
+
+    def icon_folder(self) -> Path:
+        """A folder with a custom icon, the way Explorer and the icon skill make one."""
+        folder = self.src / "Project"
+        ini = write(folder / "desktop.ini", "[.ShellClassInfo]\nIconResource=.icon.ico,0\n")
+        ico = write(folder / ".icon.ico", "ico")
+        write(folder / "notes.txt")
+        self.set_attrs(ini, self.HIDDEN | self.SYSTEM)
+        self.set_attrs(ico, self.HIDDEN)
+        self.set_attrs(folder, self.RO)
+        return folder
+
+    def test_folder_icon_survives_backup(self):
+        self.icon_folder()
+        r = self.run_roots(self.root())
+        self.assertEqual(r.progress.errors, 0)
+        self.assertEqual(self.attrs(self.dst / "Project"), self.RO)
+        self.assertEqual(self.attrs(self.dst / "Project" / "desktop.ini"), self.HIDDEN | self.SYSTEM)
+        self.assertEqual(self.attrs(self.dst / "Project" / ".icon.ico"), self.HIDDEN)
+        self.assertEqual(self.attrs(self.dst / "Project" / "notes.txt"), 0)
+
+    def test_existing_backup_gets_flags_without_recopying(self):
+        folder = self.icon_folder()
+        flags = {p: self.attrs(p) for p in (folder, folder / "desktop.ini", folder / ".icon.ico")}
+        for p in flags:
+            self.set_attrs(p, 0)
+        self.run_roots(self.root())                   # an older backup: no flags
+        for p, a in flags.items():
+            self.set_attrs(p, a)
+        r = self.run_roots(self.root())
+        self.assertEqual((r.progress.copied, r.progress.updated), (0, 0))
+        self.assertEqual(self.attrs(self.dst / "Project"), self.RO)
+        self.assertEqual(self.attrs(self.dst / "Project" / "desktop.ini"), self.HIDDEN | self.SYSTEM)
+
+    def test_read_only_folder_removed_from_backup(self):
+        folder = self.icon_folder()
+        self.run_roots(self.root())
+        for p in folder.iterdir():
+            self.set_attrs(p, 0)
+            p.unlink()
+        self.set_attrs(folder, 0)
+        folder.rmdir()
+        write(self.src / "keep.txt")
+        r = self.run_roots(self.root())
+        self.assertEqual(r.progress.errors, 0)
+        self.assertFalse((self.dst / "Project").exists())
+
 class Excludes(Base):
     def test_anchored_and_name_patterns(self):
         write(self.src / "cache" / "x")

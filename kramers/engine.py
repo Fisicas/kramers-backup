@@ -28,6 +28,10 @@ Special copies:
       removed (used to keep login tokens out of the backup). A file that
       cannot be parsed is skipped -- never copied unredacted.
 
+Attributes: the backup keeps each file's and folder's read-only, hidden and
+system flags. A folder's read-only/system flag is what makes Explorer read its
+desktop.ini, so custom folder icons show in the backup too.
+
 Standard library only; imports and runs on non-Windows for testing.
 """
 from __future__ import annotations
@@ -78,6 +82,9 @@ DEFAULT_EXCLUDES = (
 # Folders the tool keeps at the top of a destination; never treated as data.
 TOOL_DIRS = ("_archive", "_logs", "_BackupTool", "_kramers",
              "desktop.ini", ".kramers.ico")    # folder icon files (folder_icons.py)
+
+# Read-only, hidden, system: the attributes kept the same as the source (Windows).
+ATTR_MASK = 0x1 | 0x2 | 0x4
 
 SQLITE_PATTERNS = ("*.sqlite", "*.sqlite3", "*.db", "*.eni", "*.enl")   # .eni/.enl: EndNote
 SQLITE_SIDECARS = tuple(f"{p}-{s}" for p in SQLITE_PATTERNS for s in ("wal", "shm", "journal"))
@@ -143,6 +150,7 @@ class RootPlan:
     scanned_source_files: int = 0
     scanned_dest_files: int = 0
     stale_partials: list = field(default_factory=list)
+    attr_fixes: dict = field(default_factory=dict)    # rel -> attributes (unchanged files, folders)
     warnings: list = field(default_factory=list)      # (path, message)
     skip_reason: str = ""            # whole root skipped
     deletes_blocked: str = ""        # deletions withheld, and why
@@ -310,6 +318,23 @@ def _same_mtime(src: float, dst: float) -> bool:
     return src < FAT_EPOCH and abs(dst - FAT_EPOCH) <= MTIME_TOLERANCE_SECONDS
 
 
+def _attrs(st: os.stat_result) -> int:
+    return getattr(st, "st_file_attributes", 0) & ATTR_MASK
+
+
+def _set_attrs(path: str, attrs: int) -> None:
+    """Give path these read-only/hidden/system flags, keeping its others (Windows)."""
+    if not IS_WINDOWS:
+        return
+    import ctypes
+    k = ctypes.windll.kernel32
+    cur = k.GetFileAttributesW(_long(path))
+    if cur == 0xFFFFFFFF or cur & ATTR_MASK == attrs:
+        return
+    if not k.SetFileAttributesW(_long(path), (cur & ~ATTR_MASK) | attrs):
+        raise ctypes.WinError()
+
+
 def _is_locked(exc: OSError) -> bool:
     return getattr(exc, "winerror", None) in (32, 33) or isinstance(exc, PermissionError)
 
@@ -385,13 +410,14 @@ def _classify(plan: RootPlan, rel: str, sst: os.stat_result,
     act = Action("copy", rel, sst.st_size, special=special, mtime=mtime)
     if dst is None:
         plan.copies.append(act)
-    elif not plan.root.update_existing:
-        plan.unchanged_files += 1
-    elif (not special and sst.st_size != dst.st_size) or not _same_mtime(mtime, dst.st_mtime):
+    elif plan.root.update_existing and (
+            (not special and sst.st_size != dst.st_size) or not _same_mtime(mtime, dst.st_mtime)):
         act.kind = "update"
         plan.updates.append(act)
     else:
         plan.unchanged_files += 1
+        if _attrs(sst) != _attrs(dst):
+            plan.attr_fixes[rel] = _attrs(sst)
 
 
 def build_plan(root: Root, progress: Optional[Progress] = None,
@@ -425,12 +451,12 @@ def build_plan(root: Root, progress: Optional[Progress] = None,
     only = _Matcher(root.only)
 
     src_index: dict = {}
-    src_dirs: set = set()
+    src_dirs: dict = {}                     # rel -> attributes
     for rel, st, is_dir in _walk(src, excludes, only, root.follow_reparse, plan.warnings):
         if cancel is not None and cancel.is_set():
             return plan
         if is_dir:
-            src_dirs.add(rel)
+            src_dirs[rel] = _attrs(st)
         else:
             src_index[rel] = st
             plan.scanned_source_files += 1
@@ -442,7 +468,7 @@ def build_plan(root: Root, progress: Optional[Progress] = None,
                 progress_cb(progress)
 
     dst_index: dict = {}
-    dst_dirs: set = set()
+    dst_dirs: dict = {}
     dest = os.path.normpath(root.dest)
     if os.path.isdir(_long(dest)):
         for rel, st, is_dir in _walk(dest, excludes, only, root.follow_reparse,
@@ -450,7 +476,7 @@ def build_plan(root: Root, progress: Optional[Progress] = None,
             if cancel is not None and cancel.is_set():
                 return plan
             if is_dir:
-                dst_dirs.add(rel)
+                dst_dirs[rel] = _attrs(st)
             else:
                 dst_index[rel] = st
                 plan.scanned_dest_files += 1
@@ -459,6 +485,10 @@ def build_plan(root: Root, progress: Optional[Progress] = None,
     dst_by_norm = {norm(k): v for k, v in dst_index.items()}
     for rel, sst in src_index.items():
         _classify(plan, rel, sst, dst_by_norm.get(norm(rel)))
+    dst_dirs_by_norm = {norm(k): v for k, v in dst_dirs.items()}
+    for rel, attrs in src_dirs.items():
+        if dst_dirs_by_norm.get(norm(rel), 0) != attrs:   # missing folders are made by copies
+            plan.attr_fixes[rel] = attrs
 
     if root.mode in ("mirror", "versioned"):
         src_norm = {norm(k) for k in src_index}
@@ -654,6 +684,7 @@ def _copy_one(plan: RootPlan, act: Action, stamp: str, progress: Progress,
                     pass
         if not sst.st_mode & stat.S_IWRITE:
             os.chmod(_long(dst), stat.S_IREAD)
+        _set_attrs(dst, _attrs(sst))
     except BaseException:
         try:
             if os.path.exists(_long(tmp)):
@@ -863,9 +894,25 @@ def _run(roots, progress_cb, cancel, dry_run, log, confirm_deletes, guard, worke
             path = _long(_dst_path(plan, act.rel))
             try:
                 if os.path.isdir(path) and not os.listdir(path):
+                    _set_attrs(path, 0)                 # a read-only folder refuses rmdir
                     os.rmdir(path)
             except OSError as exc:
                 log(f"RMDIR SKIP: {plan.root.label}/{act.rel}: {exc}")
+
+    # ---- 5. attributes (folder icons need the folder's flags) ------------ #
+    for plan in result.plans:
+        fixed = 0
+        for rel, attrs in plan.attr_fixes.items():
+            path = _dst_path(plan, rel)
+            try:
+                if os.path.exists(_long(path)):
+                    _set_attrs(path, attrs)
+                    fixed += 1
+            except OSError as exc:
+                progress.add(warnings=1)
+                log(f"WARNING: {plan.root.label}/{rel}: could not set attributes: {exc}")
+        if fixed:
+            log(f"[{plan.root.label}] read-only/hidden/system flags updated on {fixed} items.")
 
     p = progress
     log(f"Done. Copied {p.copied}, updated {p.updated}, removed {p.deleted}, "
