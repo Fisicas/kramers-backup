@@ -15,6 +15,9 @@
   copied at full resolution (up to 256 px) from the program or Windows icon library,
   and the backup folder shows the Kramers icon (hidden `.kramers.ico` + `desktop.ini`; never mirrored
   or removed).
+- **Your own folder icons show in the backup.** Files and folders keep their read-only, hidden and
+  system flags, so a folder customised with a `desktop.ini` (custom icon) looks the same on the
+  backup drive. An existing backup is fixed on the next run without copying anything again.
 - **Backup-set columns fit their text and can be resized.** Set, Include, Size, Mode and Last
   backup size themselves to what they show (so "⚠ Warnings" is no longer cut off at any display
   scale); Source and Backed up to share the rest of the width. Drag a column edge to resize it (the
